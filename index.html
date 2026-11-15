@@ -94,6 +94,8 @@ $('backBody').onclick=()=>step(1);$('analyze').onclick=()=>{if(!selected.length)
 $('showNotice').onclick=()=>$('modal').classList.remove('hidden');$('ack').onclick=()=>$('modal').classList.add('hidden');$('editSymptoms').onclick=()=>step(2);
 function reset(){selected=[];setRegion('pelvis');step(1);$('modal').classList.add('hidden');$('pickedName').textContent='点击人体查看具体结构';updateHighlight(null);camera.position.set(0,1.48,4.25);controls.target.set(0,1.48,0);controls.update()}$('reset').onclick=$('restart').onclick=reset;
 new ResizeObserver(()=>{camera.aspect=box.clientWidth/box.clientHeight;camera.updateProjectionMatrix();renderer.setSize(box.clientWidth,box.clientHeight)}).observe(box);
-await Promise.all([loadCatalog(),loadBody('male')]);
-function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}animate();
+function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}
+animate();
+loadCatalog();
+loadBody('male');
 </script></body></html>
