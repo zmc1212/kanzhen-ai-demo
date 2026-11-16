@@ -13,11 +13,19 @@
 <section class="panel results hidden" id="resultPage"><div class="head"><div><div class="eyebrow">STEP 03 / TRIAGE GUIDANCE</div><h1>为您整理了相关就诊参考</h1><p>以下为交互演示数据，请由医生进一步评估</p></div></div><div class="resultgrid"><div class="resultbox"><h2>相关情况参考</h2><p id="chosen" style="font-size:12px;color:#999"></p><div id="diseaseList"></div></div><aside class="advice"><h2>建议进一步就诊</h2><p>系统根据所选部位与症状展示就诊参考。请由医生结合病史、体格检查及必要检查明确原因。</p><div class="dept">参考就诊科室<b>普外一科 · 肛肠科</b></div><button class="primary" id="showNotice">查看温馨提示 →</button><button class="ghost" style="width:100%;margin-top:8px" onclick="window.print()">打印导诊参考</button></aside></div><div class="footrow"><button class="ghost" id="editSymptoms">← 修改症状</button><button class="primary" id="restart">↻ 重新开始</button></div></section></main>
 <footer class="footer"><span>看诊 1.0 · 智能触控导诊系统</span><span>Anatomy: BodyParts3D © DBCLS · HuBMAP · MakeHuman · CC BY 4.0</span><span>仅供演示，非医疗诊断工具 · V0.3.0</span></footer>
 <div id="modal" class="modalbg hidden"><div class="modal"><div style="font-size:28px;color:#e85c4d">✚</div><div class="eyebrow">KIND REMINDER</div><h2>温馨提示</h2><p>系统整理的相关情况仅供导诊交互演示，不能作为诊断结论。请前往医院相关科室，由医生进一步明确诊断。</p><div class="notice">建议咨询科室<br><b>普外一科 · 肛肠科</b></div><button class="primary" id="ack">我知道了 ✓</button></div></div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.171.0/examples/jsm/"
+  }
+}
+</script>
 <script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.171.0/examples/jsm/loaders/GLTFLoader.js';
-import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.171.0/examples/jsm/controls/OrbitControls.js';
-import { MeshoptDecoder } from 'https://cdn.jsdelivr.net/npm/three@0.171.0/examples/jsm/libs/meshopt_decoder.module.js';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const MODEL_BASE='https://cdn.jsdelivr.net/npm/open-anatomy-3d@0.1.0/models/anatomy-';
 const CATALOG_URL='https://cdn.jsdelivr.net/npm/open-anatomy-3d@0.1.0/catalog.json';
