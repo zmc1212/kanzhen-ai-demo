@@ -26,15 +26,17 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const MODEL_BASE='https://cdn.jsdelivr.net/npm/open-anatomy-3d@0.1.0/models/anatomy-';
+const SEGMENTED_SKIN_URL='./models/skin-segmented.glb';
 const CATALOG_URL='https://cdn.jsdelivr.net/npm/open-anatomy-3d@0.1.0/catalog.json';
 const regions=[['head','头面部'],['chest','胸部'],['abdomen','腹部'],['back','背部'],['arm','上肢'],['leg','下肢'],['pelvis','臀部及肛部']];
 const symptoms={head:['头痛','头晕','面部麻木','视物模糊'],chest:['胸痛或胸闷','心悸','咳嗽','呼吸不畅'],abdomen:['腹部疼痛','恶心呕吐','腹胀','腹泻'],back:['腰背疼痛','局部瘙痒','皮肤红疹'],arm:['上肢疼痛','关节肿胀','麻木或刺痛'],leg:['下肢疼痛','腿部肿胀','行走不适'],pelvis:['大便呈黑色','肛门瘙痒','臀部及肛部疼痛']};
 const diseases=[['痔疮',17],['肛门直肠息肉',10],['接触性皮炎',6],['不明原因肛门疼痛',4],['瘙痒症',3],['肛裂或肛瘘',2]];
 const systems=[['skin','皮肤',true],['skeleton','骨骼',false],['muscles','肌肉',false],['organs','内脏',false],['vessels','血管',false],['nerves','神经',false]];
 const $=id=>document.getElementById(id);
-let region='pelvis',sex='male',selected=[],catalog={},currentRoot=null,activeMesh=null,activeOriginal=null,hoveredMesh=null;
+let region='pelvis',sex='male',selected=[],catalog={},currentRoot=null,segmentedSkinRoot=null,segmentedSkinMeshes=[],activeMeshes=[],hoveredMesh=null;
 const box=$('model');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#77719f');
 const camera=new THREE.PerspectiveCamera(34,box.clientWidth/box.clientHeight,.05,100);camera.position.set(0,0.9,4.8);
@@ -44,101 +46,79 @@ const keyLight=new THREE.DirectionalLight(0xffe8d8,2.8);keyLight.position.set(3,
 const fillLight=new THREE.DirectionalLight(0xc4d8ff,1.2);fillLight.position.set(-4,1,-3);scene.add(fillLight);
 const rimLight=new THREE.DirectionalLight(0xffffff,1.4);rimLight.position.set(0,3,-5);scene.add(rimLight);
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.075;controls.minDistance=2.2;controls.maxDistance=8;controls.target.set(0,.92,0);controls.enablePan=false;controls.rotateSpeed=.72;controls.zoomSpeed=.8;
-const loader=new GLTFLoader();
-loader.setMeshoptDecoder(MeshoptDecoder);
+const dracoLoader=new DRACOLoader();dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+const loader=new GLTFLoader();loader.setMeshoptDecoder(MeshoptDecoder);loader.setDRACOLoader(dracoLoader);
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();let pointerDown=null,modelHeight=1.8,skinBounds=null;
 function status(t){$('modelStatus').textContent=t}
 function showLoading(t){$('loadingText').textContent=t;$('loadingMask').classList.remove('hidden');const retry=$('retryModel');if(retry)retry.classList.add('hidden')}
 function hideLoading(){$('loadingMask').classList.add('hidden')}
 function labelFor(mesh){const key=mesh?.name||mesh?.userData?.name||'';const row=catalog[key];return row?.label||row?.name||key.replaceAll('_',' ')||'已选择解剖结构'}
-function regionForPoint(point,normal){
- const bounds=skinBounds||new THREE.Box3().setFromObject(currentRoot);
- const size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
- const y=(point.y-bounds.min.y)/Math.max(size.y,.001);
- const x=Math.abs(point.x-center.x)/Math.max(size.x,.001);
- const isBack=normal ? normal.z<-.25 : point.z<center.z;
- if(y>.82)return 'head';
- if(x>.27&&y>.24&&y<.83)return 'arm';
- if(y>.56&&y<=.82&&x<.29)return isBack?'back':'chest';
- if(y>.39&&y<=.56&&x<.27)return isBack?'back':'abdomen';
- if(y>.28&&y<=.40&&x<.29)return 'pelvis';
- if(y<=.30)return 'leg';
- return isBack?'back':'chest';
+function regionForStructureName(name){
+ const n=String(name||'').toLowerCase();
+ if(/head|face|scalp|skull|cranial|orbital|auricular|nasal|oral|lip|eyebrow|eyelash|frontal region|parietal region|occipital region|temporal region|mastoid|mental region|buccal|zygomatic|cheek|chin/.test(n))return 'head';
+ if(/back|dorsal|scapular|vertebral|lumbar|sacral|nuchal|spinal/.test(n))return 'back';
+ if(/thoracic|chest|pectoral|sternal|mammary|breast|rib|costal|clavicular|axillary/.test(n))return 'chest';
+ if(/abdominal|umbil|epigastr|hypogastr|inguinal|flank|hypochondriac/.test(n))return 'abdomen';
+ if(/arm|brachial|elbow|cubital|forearm|antebrach|wrist|carpal|palm|palmar|hand|digit|finger|thumb|thenar|hypothenar/.test(n))return 'arm';
+ if(/thigh|femoral|knee|patellar|popliteal|leg|crural|calf|sural|ankle|tarsal|foot|heel|sole|plantar|toe|hallux|gluteal|hip/.test(n))return 'leg';
+ if(/pelvi|perine|anal|buttock|urogenital/.test(n))return 'pelvis';
+ return 'pelvis';
 }
-function setRegion(k,focus=false){region=k;$('current').textContent=regions.find(x=>x[0]===k)?.[1]||'身体部位';document.querySelectorAll('.region').forEach(b=>b.classList.toggle('active',b.dataset.key===k));if(focus){focusRegion(k);showRegionHighlight(k)}}
+function sideLabel(name){return /\\.l$/i.test(name)?'左侧':/\\.r$/i.test(name)?'右侧':''}
+function setRegion(k,focus=false){region=k;$('current').textContent=regions.find(x=>x[0]===k)?.[1]||'身体部位';document.querySelectorAll('.region').forEach(b=>b.classList.toggle('active',b.dataset.key===k));if(focus){focusRegion(k);selectRegionMeshes(k)}}
 function focusRegion(k){const y={head:2.58,chest:2.02,abdomen:1.48,back:1.85,arm:1.85,leg:.48,pelvis:1.02}[k]??1.48;controls.target.set(0,y,0);camera.position.set(k==='arm'?1.15:0,y+.08,2.85);controls.update()}
-const regionHighlightMaterial=new THREE.MeshBasicMaterial({color:0xff624f,transparent:true,opacity:.58,depthTest:true,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2});
-let regionHighlight=null;
-function clearRegionHighlight(){if(regionHighlight){scene.remove(regionHighlight);regionHighlight.geometry.dispose()}regionHighlight=null}
-function triangleBelongsToRegion(point,normal,k,sideNormal){
- const bounds=skinBounds;if(!bounds)return false;
- const size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
- const y=(point.y-bounds.min.y)/Math.max(size.y,.001);
- const x=Math.abs(point.x-center.x)/Math.max(size.x,.001);
- const facing=normal.dot(sideNormal);
- if(facing<0.12)return false;
- if(k==='head')return y>.82;
- if(k==='arm')return x>.27&&y>.24&&y<.83;
- if(k==='chest')return y>.56&&y<=.82&&x<.29;
- if(k==='back')return y>.56&&y<=.82&&x<.29;
- if(k==='abdomen')return y>.39&&y<=.56&&x<.27;
- if(k==='pelvis')return y>.28&&y<=.40&&x<.29;
- if(k==='leg')return y<=.30;
- return false;
+async function loadSegmentedSkin(baseSkin){
+ const gltf=await loader.loadAsync(SEGMENTED_SKIN_URL);
+ const group=gltf.scene;group.name='segmented-skin-parts';
+ const targetBounds=baseSkin?new THREE.Box3().setFromObject(baseSkin):new THREE.Box3().setFromObject(currentRoot);
+ const sourceBounds=new THREE.Box3().setFromObject(group);
+ const targetSize=targetBounds.getSize(new THREE.Vector3()),sourceSize=sourceBounds.getSize(new THREE.Vector3());
+ const scale=targetSize.y/Math.max(sourceSize.y,.0001);
+ const targetCenter=targetBounds.getCenter(new THREE.Vector3()),sourceCenter=sourceBounds.getCenter(new THREE.Vector3());
+ group.scale.setScalar(scale);group.position.copy(targetCenter).sub(sourceCenter.multiplyScalar(scale));
+ const skinMaterial=new THREE.MeshPhysicalMaterial({color:0xd9a58f,roughness:.62,metalness:0,clearcoat:.08,clearcoatRoughness:.75});
+ const nailMaterial=new THREE.MeshStandardMaterial({color:0xe9c7bb,roughness:.5});
+ const hairMaterial=new THREE.MeshStandardMaterial({color:0x3b2925,roughness:.82});
+ group.traverse(mesh=>{if(!mesh.isMesh)return;const name=mesh.userData.zname||mesh.name;mesh.userData.structureName=name;mesh.userData.isSegmentedSkinPart=true;const kind=mesh.userData.zmat||'Skin';mesh.material=kind==='Nail'?nailMaterial:kind==='Black'?hairMaterial:skinMaterial;mesh.castShadow=true;mesh.receiveShadow=true;segmentedSkinMeshes.push(mesh)});
+ segmentedSkinRoot=group;scene.add(group);group.visible=true;
+ status('已加载 '+segmentedSkinMeshes.length+' 个独立皮肤网格零件');
 }
-function getSkinMeshes(){
- const skinGroup=currentRoot?.getObjectByName('skin');
- if(!skinGroup)return [];
- const meshes=[];skinGroup.traverse(o=>{if(o.isMesh)meshes.push(o)});
- return meshes;
+function clearActiveMeshes(){
+ for(const mesh of activeMeshes){if(mesh.userData._originalMaterial){mesh.material=mesh.userData._originalMaterial;delete mesh.userData._originalMaterial}}
+ activeMeshes=[];
 }
-function showRegionHighlight(k,worldPoint=null,worldNormal=null){
- if(!currentRoot||!skinBounds)return;
- clearRegionHighlight();
- const skinMeshes=getSkinMeshes();
- if(!skinMeshes.length){status('未找到皮肤表面网格');return}
- const bounds=skinBounds,size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
- const sideNormal=worldNormal?worldNormal.clone().normalize():(k==='back'?new THREE.Vector3(0,0,-1):new THREE.Vector3(0,0,1));
- const vertices=[];
- const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),centroid=new THREE.Vector3(),normal=new THREE.Vector3(),edge1=new THREE.Vector3(),edge2=new THREE.Vector3();
- for(const mesh of skinMeshes){
-  mesh.updateWorldMatrix(true,false);
-  const position=mesh.geometry.getAttribute('position');if(!position)continue;
-  const index=mesh.geometry.index;
-  const count=index?index.count:position.count;
-  for(let i=0;i+2<count;i+=3){
-   const ia=index?index.getX(i):i,ib=index?index.getX(i+1):i+1,ic=index?index.getX(i+2):i+2;
-   a.fromBufferAttribute(position,ia).applyMatrix4(mesh.matrixWorld);
-   b.fromBufferAttribute(position,ib).applyMatrix4(mesh.matrixWorld);
-   c.fromBufferAttribute(position,ic).applyMatrix4(mesh.matrixWorld);
-   centroid.copy(a).add(b).add(c).multiplyScalar(1/3);
-   edge1.subVectors(b,a);edge2.subVectors(c,a);normal.crossVectors(edge1,edge2).normalize();
-   if(!triangleBelongsToRegion(centroid,normal,k,sideNormal))continue;
-   const offset=normal.clone().multiplyScalar(.0035);
-   vertices.push(a.x+offset.x,a.y+offset.y,a.z+offset.z,b.x+offset.x,b.y+offset.y,b.z+offset.z,c.x+offset.x,c.y+offset.y,c.z+offset.z);
-  }
+function highlightMeshes(meshes){
+ clearActiveMeshes();activeMeshes=[...new Set(meshes)].filter(Boolean);
+ for(const mesh of activeMeshes){
+  const original=mesh.material;mesh.userData._originalMaterial=original;
+  const clone=Array.isArray(original)?original.map(m=>m.clone()):original.clone();mesh.material=clone;
+  const mats=Array.isArray(clone)?clone:[clone];
+  mats.forEach(m=>{if(m.emissive){m.emissive.set('#ff624f');m.emissiveIntensity=1.1}else if(m.color){m.color.set('#ff806c')}});
  }
- if(!vertices.length){status('没有找到该区域的皮肤三角面，请尝试点击更靠近身体中心的位置');return}
- const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.computeVertexNormals();
- regionHighlight=new THREE.Mesh(geometry,regionHighlightMaterial);regionHighlight.renderOrder=20;scene.add(regionHighlight);
- status('已按人体表面网格高亮 '+(regions.find(x=>x[0]===k)?.[1]||k));
 }
-$('regions').innerHTML=regions.map(([k,n])=>'<button class="region '+(k==='pelvis'?'active':'')+'" data-key="'+k+'">'+n+'</button>').join('');
-document.querySelectorAll('.region').forEach(b=>b.onclick=()=>setRegion(b.dataset.key,true));
-function disposeRoot(){if(!currentRoot)return;clearRegionHighlight();skinBounds=null;scene.remove(currentRoot);currentRoot.traverse(o=>{if(o.isMesh){o.geometry?.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m?.dispose())}});currentRoot=null;activeMesh=null;activeOriginal=null}
+function updateHighlight(mesh){highlightMeshes(mesh?[mesh]:[])}
+function selectRegionMeshes(k){const matches=segmentedSkinMeshes.filter(mesh=>regionForStructureName(mesh.userData.structureName)===k);if(matches.length)highlightMeshes(matches)}
+function disposeRoot(){
+ clearActiveMeshes();
+ if(segmentedSkinRoot){scene.remove(segmentedSkinRoot);segmentedSkinRoot.traverse(o=>{if(o.isMesh){o.geometry?.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m?.dispose())}});segmentedSkinRoot=null;segmentedSkinMeshes=[]}
+ if(currentRoot){scene.remove(currentRoot);currentRoot.traverse(o=>{if(o.isMesh){o.geometry?.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m?.dispose())}});currentRoot=null}
+ skinBounds=null;
+}
 function frameModel(group){const bounds=new THREE.Box3().setFromObject(group);const size=bounds.getSize(new THREE.Vector3());const center=bounds.getCenter(new THREE.Vector3());modelHeight=size.y||1.8;const scale=3.05/modelHeight;group.scale.setScalar(scale);group.position.set(-center.x*scale,-bounds.min.y*scale,-center.z*scale);controls.target.set(0,1.52,0);camera.position.set(0,1.52,4.25);controls.minDistance=2.0;controls.maxDistance=7;controls.update()}
 function setSystemVisibility(group){for(const [id,,visible] of systems){const node=group.getObjectByName(id);if(node)node.visible=visible}}
 async function loadBody(nextSex){
- showLoading(nextSex==='male'?'正在加载成年男性人体模型…':'正在加载成年女性人体模型…');status('正在下载完整人体模型（约 8 MB）…');
+ showLoading(nextSex==='male'?'正在加载成年男性人体模型…':'正在加载成年女性人体模型…');status('正在下载完整人体模型…');
  $('male').disabled=$('female').disabled=true;
  try{
   const gltf=await Promise.race([loader.loadAsync(MODEL_BASE+nextSex+'.glb',event=>{if(event.total){const pct=Math.round(event.loaded/event.total*100);$('loadingText').textContent='正在下载人体模型… '+pct+'%'}}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('模型加载超时（45 秒）')),45000))]);
   disposeRoot();currentRoot=gltf.scene;currentRoot.name='anatomy-'+nextSex;
-  setSystemVisibility(currentRoot);scene.add(currentRoot);frameModel(currentRoot);const skinGroup=currentRoot.getObjectByName('skin')||currentRoot;skinBounds=new THREE.Box3().setFromObject(skinGroup);sex=nextSex;
+  setSystemVisibility(currentRoot);scene.add(currentRoot);frameModel(currentRoot);const baseSkin=currentRoot.getObjectByName('skin');skinBounds=baseSkin?new THREE.Box3().setFromObject(baseSkin):new THREE.Box3().setFromObject(currentRoot);sex=nextSex;
+  if(nextSex==='male'){
+   try{await loadSegmentedSkin(baseSkin);if(baseSkin)baseSkin.visible=false;$('modelBadge').textContent='成年男性 · 256 个独立皮肤模型零件';}
+   catch(skinErr){console.error(skinErr);if(baseSkin)baseSkin.visible=true;status('独立皮肤分区加载失败，已回退基础皮肤模型');$('modelBadge').textContent='成年男性 · 基础人体模型';}
+  }else{$('modelBadge').textContent='成年女性 · 当前使用整体皮肤模型';status('女性独立皮肤分区模型尚未接入');}
   $('male').classList.toggle('active',sex==='male');$('female').classList.toggle('active',sex==='female');
-  $('modelBadge').textContent=(sex==='male'?'成年男性':'成年女性')+' · 完整皮肤与解剖结构';
-  status('模型已加载 · 点击身体表面可按区域高亮');$('pickedName').textContent='点击人体查看具体结构';
-  hideLoading();
+  $('pickedName').textContent='点击人体上的独立结构零件';hideLoading();
  }catch(err){console.error(err);status('模型加载失败：'+(err?.message||'请检查网络或稍后重试'));$('loadingText').textContent='人体模型加载失败，请检查网络后点击重试';const retry=$('retryModel');if(retry)retry.classList.remove('hidden');}
  finally{$('male').disabled=$('female').disabled=false}
 }
@@ -157,10 +137,38 @@ function updateHighlight(mesh){
   mats.forEach(m=>{if(m.emissive){m.emissive.set('#ff624f');m.emissiveIntensity=.85}});
  }
 }
-function intersect(e){const r=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);const hits=raycaster.intersectObject(currentRoot,true);return hits.find(h=>h.object.isMesh&&h.object.visible&&!h.object.userData.isRegionHighlight)}
+function intersect(e){
+ const r=renderer.domElement.getBoundingClientRect();
+ pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
+ raycaster.setFromCamera(pointer,camera);
+ const roots=[segmentedSkinRoot,currentRoot].filter(Boolean);
+ const hits=raycaster.intersectObjects(roots,true);
+ return hits.find(hit=>hit.object.isMesh&&hit.object.visible);
+}
 renderer.domElement.addEventListener('pointerdown',e=>{pointerDown={x:e.clientX,y:e.clientY}});
-renderer.domElement.addEventListener('pointerup',e=>{if(!pointerDown)return;const moved=Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y);pointerDown=null;if(moved>6)return;const hit=intersect(e);if(!hit)return;const mesh=hit.object;const normal=hit.face?hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).normalize():new THREE.Vector3(0,0,1);const k=regionForPoint(hit.point,normal);const structure=labelFor(mesh);const isSkin=mesh.parent?.name==='skin'||mesh.name==='skin'||mesh.parent?.parent?.name==='skin';if(isSkin){updateHighlight(null);setRegion(k);showRegionHighlight(k,hit.point,normal);$('pickedName').textContent='皮肤表面 · '+(regions.find(x=>x[0]===k)?.[1]||'身体区域')}else{clearRegionHighlight();updateHighlight(mesh);setRegion(k);$('pickedName').textContent=structure+' · '+(regions.find(x=>x[0]===k)?.[1]||'身体结构')}});
-renderer.domElement.addEventListener('pointermove',e=>{if(!currentRoot||pointerDown)return;const hit=intersect(e),tag=$('hoverTag');renderer.domElement.style.cursor=hit?'pointer':'grab';if(hit){const normal=hit.face?hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize():null;const k=regionForPoint(hit.point,normal);const skinHit=hit.object.parent?.name==='skin'||hit.object.name==='skin'||hit.object.parent?.parent?.name==='skin';tag.textContent=(skinHit?'皮肤表面':labelFor(hit.object))+' · '+(regions.find(x=>x[0]===k)?.[1]||'身体区域');tag.style.display='block';const r=box.getBoundingClientRect();tag.style.left=Math.min(e.clientX-r.left,Math.max(8,r.width-200))+'px';tag.style.top=Math.min(e.clientY-r.top,Math.max(8,r.height-42))+'px'}else tag.style.display='none'});
+renderer.domElement.addEventListener('pointerup',e=>{
+ if(!pointerDown)return;
+ const moved=Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y);pointerDown=null;
+ if(moved>6)return;
+ const hit=intersect(e);if(!hit)return;
+ const mesh=hit.object;
+ const name=mesh.userData.structureName||mesh.userData.zname||mesh.name||'解剖结构';
+ const k=regionForStructureName(name);
+ highlightMeshes([mesh]);setRegion(k);
+ $('pickedName').textContent=name+' '+sideLabel(name)+' · 独立模型零件';
+});
+renderer.domElement.addEventListener('pointermove',e=>{
+ if(!currentRoot||pointerDown)return;
+ const hit=intersect(e),tag=$('hoverTag');renderer.domElement.style.cursor=hit?'pointer':'grab';
+ if(hit){
+  const name=hit.object.userData.structureName||hit.object.userData.zname||hit.object.name||'解剖结构';
+  const k=regionForStructureName(name);
+  tag.textContent=name+' '+sideLabel(name)+' · '+(regions.find(x=>x[0]===k)?.[1]||'身体区域');
+  tag.style.display='block';const r=box.getBoundingClientRect();
+  tag.style.left=Math.min(e.clientX-r.left,Math.max(8,r.width-200))+'px';
+  tag.style.top=Math.min(e.clientY-r.top,Math.max(8,r.height-42))+'px';
+ }else tag.style.display='none';
+});
 function renderSystems(){$('layerControls').innerHTML=systems.map(([id,name,on])=>'<button class="layerChip '+(on?'active':'')+'" data-system="'+id+'">'+name+'</button>').join('');document.querySelectorAll('.layerChip').forEach(b=>b.onclick=()=>{const item=systems.find(x=>x[0]===b.dataset.system);item[2]=!item[2];const node=currentRoot?.getObjectByName(item[0]);if(node)node.visible=item[2];b.classList.toggle('active',item[2]);status(item[1]+'图层'+(item[2]?'已显示':'已隐藏'))})}
 renderSystems();
 async function loadCatalog(){try{const res=await fetch(CATALOG_URL);if(res.ok){const data=await res.json();const list=Array.isArray(data)?data:(data.structures||data.default||[]);for(const item of list)if(item.key)catalog[item.key]=item}}catch(e){console.warn('catalog unavailable; using mesh names',e)}}
@@ -173,7 +181,7 @@ $('toSymptoms').onclick=()=>{selected=[];$('symRegion').textContent=regions.find
 function renderSymptoms(){$('symptomList').innerHTML=symptoms[region].map((s,i)=>'<button class="symptom '+(selected.includes(s)?'selected':'')+'" data-sym="'+s+'"><small>'+String(i+1).padStart(2,'0')+'</small>'+s+'<i>'+(selected.includes(s)?'✓':'')+'</i></button>').join('');document.querySelectorAll('.symptom').forEach(b=>b.onclick=()=>{const s=b.dataset.sym;selected=selected.includes(s)?selected.filter(x=>x!==s):[...selected,s];renderSymptoms()});$('analyze').disabled=!selected.length}
 $('backBody').onclick=()=>step(1);$('analyze').onclick=()=>{if(!selected.length)return;$('chosen').textContent='已选部位：'+$('symRegion').textContent+'；症状：'+selected.join('、');$('diseaseList').innerHTML=diseases.map(([n,p],i)=>'<div class="disease"><small>'+String(i+1).padStart(2,'0')+'</small><div class="name"><b>'+n+'</b><div class="bar"><i style="width:'+p*4+'%"></i></div></div><span class="pct">'+p+'%</span></div>').join('');step(3);$('modal').classList.remove('hidden')};
 $('showNotice').onclick=()=>$('modal').classList.remove('hidden');$('ack').onclick=()=>$('modal').classList.add('hidden');$('editSymptoms').onclick=()=>step(2);
-function reset(){selected=[];setRegion('pelvis');step(1);$('modal').classList.add('hidden');$('pickedName').textContent='点击人体查看具体结构';updateHighlight(null);clearRegionHighlight();camera.position.set(0,1.48,4.25);controls.target.set(0,1.48,0);controls.update()}$('reset').onclick=$('restart').onclick=reset;
+function reset(){selected=[];clearActiveMeshes();setRegion('pelvis');step(1);$('modal').classList.add('hidden');$('pickedName').textContent='点击人体查看具体结构';camera.position.set(0,1.48,4.25);controls.target.set(0,1.48,0);controls.update()}$('reset').onclick=$('restart').onclick=reset;
 new ResizeObserver(()=>{camera.aspect=box.clientWidth/box.clientHeight;camera.updateProjectionMatrix();renderer.setSize(box.clientWidth,box.clientHeight)}).observe(box);
 function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}
 animate();
