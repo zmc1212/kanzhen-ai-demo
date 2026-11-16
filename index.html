@@ -122,21 +122,6 @@ async function loadBody(nextSex){
  }catch(err){console.error(err);status('模型加载失败：'+(err?.message||'请检查网络或稍后重试'));$('loadingText').textContent='人体模型加载失败，请检查网络后点击重试';const retry=$('retryModel');if(retry)retry.classList.remove('hidden');}
  finally{$('male').disabled=$('female').disabled=false}
 }
-function updateHighlight(mesh){
- if(activeMesh&&activeMesh.userData._originalMaterial){
-  activeMesh.material=activeMesh.userData._originalMaterial;
-  delete activeMesh.userData._originalMaterial;
- }
- activeMesh=mesh||null;
- if(mesh){
-  const original=mesh.material;
-  mesh.userData._originalMaterial=original;
-  const clone=Array.isArray(original)?original.map(m=>m.clone()):original.clone();
-  mesh.material=clone;
-  const mats=Array.isArray(clone)?clone:[clone];
-  mats.forEach(m=>{if(m.emissive){m.emissive.set('#ff624f');m.emissiveIntensity=.85}});
- }
-}
 function intersect(e){
  const r=renderer.domElement.getBoundingClientRect();
  pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
