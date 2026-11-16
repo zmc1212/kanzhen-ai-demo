@@ -30,3 +30,16 @@ https://zmc1212.github.io/kanzhen-ai-demo/
 ## 医疗安全说明
 
 这是交互与视觉演示，不是医疗器械、诊断工具或经过验证的分诊系统。症状列表、疾病条目、匹配百分比和科室建议均为演示数据，不得用于真实患者诊疗或急症排除。正式临床试点前必须由医疗专业人员审核、验证分诊规则，并完成隐私、安全、审计及适用监管要求。
+
+
+## 独立皮肤模型零件（V0.6）
+
+男性人体表面已改用独立分割的 `skin-segmented.glb`，包含 **256 个分别命名的皮肤网格零件**。点击人体时，射线拾取直接命中一个实际 GLB mesh，并只高亮该 mesh；不再根据点击坐标猜测身体区域，也不再生成圆形覆盖色块。右侧粗粒度身体区域仅根据零件名称进行分类，供后续症状流程使用。
+
+- 模型文件：`models/skin-segmented.glb`（约 0.77 MB）。
+- 来源：[SeemaBansal1/3d-human-body-anatomy](https://github.com/SeemaBansal1/3d-human-body-anatomy)，Z-Anatomy / BodyParts3D 衍生皮肤分区。
+- 压缩：Draco；浏览器通过 Three.js DRACOLoader 加载。
+- 署名及许可：见 [ATTRIBUTION-SEGMENTED-SKIN.md](./ATTRIBUTION-SEGMENTED-SKIN.md)。该模型衍生数据采用 CC BY-SA 4.0，必须保留署名并遵守相同方式共享要求。
+
+**当前范围限制：** 256 个独立皮肤网格目前用于成年男性模型。女性模型仍使用原有整体皮肤网格，女性独立表面分区尚未接入；界面会明确提示，不会假装已完成。肌肉、骨骼、器官等内部结构继续使用 Open Anatomy 3D 的独立命名网格，关闭皮肤图层后可逐个选择。
+
