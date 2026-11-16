@@ -64,7 +64,7 @@ function regionForStructureName(name){
  if(/pelvi|perine|anal|buttock|urogenital/.test(n))return 'pelvis';
  return 'pelvis';
 }
-function sideLabel(name){return /\\.l$/i.test(name)?'左侧':/\\.r$/i.test(name)?'右侧':''}
+function sideLabel(name){return /\.l$/i.test(name)?'左侧':/\.r$/i.test(name)?'右侧':''}
 function setRegion(k,focus=false){region=k;$('current').textContent=regions.find(x=>x[0]===k)?.[1]||'身体部位';document.querySelectorAll('.region').forEach(b=>b.classList.toggle('active',b.dataset.key===k));if(focus){focusRegion(k);selectRegionMeshes(k)}}
 function focusRegion(k){const y={head:2.58,chest:2.02,abdomen:1.48,back:1.85,arm:1.85,leg:.48,pelvis:1.02}[k]??1.48;controls.target.set(0,y,0);camera.position.set(k==='arm'?1.15:0,y+.08,2.85);controls.update()}
 async function loadSegmentedSkin(baseSkin){
@@ -138,6 +138,10 @@ renderer.domElement.addEventListener('pointerup',e=>{
  const hit=intersect(e);if(!hit)return;
  const mesh=hit.object;
  const name=mesh.userData.structureName||mesh.userData.zname||mesh.name||'解剖结构';
+ if(!mesh.userData.isSegmentedSkinPart&&(mesh.name==='skin'||mesh.parent?.name==='skin'||mesh.parent?.parent?.name==='skin')){
+  status('该性别的皮肤表面尚未拆分成独立零件；请先切换男性模型体验 256 个独立皮肤部件');
+  $('pickedName').textContent='当前皮肤仍是整体网格';return;
+ }
  const k=regionForStructureName(name);
  highlightMeshes([mesh]);setRegion(k);
  $('pickedName').textContent=name+' '+sideLabel(name)+' · 独立模型零件';
@@ -148,7 +152,7 @@ renderer.domElement.addEventListener('pointermove',e=>{
  if(hit){
   const name=hit.object.userData.structureName||hit.object.userData.zname||hit.object.name||'解剖结构';
   const k=regionForStructureName(name);
-  tag.textContent=name+' '+sideLabel(name)+' · '+(regions.find(x=>x[0]===k)?.[1]||'身体区域');
+  tag.textContent=(hit.object.userData.isSegmentedSkinPart?name:'整体模型')+' '+sideLabel(name)+' · '+(regions.find(x=>x[0]===k)?.[1]||'身体区域');
   tag.style.display='block';const r=box.getBoundingClientRect();
   tag.style.left=Math.min(e.clientX-r.left,Math.max(8,r.width-200))+'px';
   tag.style.top=Math.min(e.clientY-r.top,Math.max(8,r.height-42))+'px';
